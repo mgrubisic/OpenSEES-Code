@@ -1,0 +1,93 @@
+import opensees as ops
+import matplotlib.pyplot as plt
+import math
+import numpy as np
+import timeit
+import pandas as pd
+from termcolor import cprint
+start_time = timeit.default_timer()
+
+ops.wipe()
+ops.model('Basic','-ndm',2,'-ndf',3)
+cprint("Model is being built",'green')
+
+#Node----------------------------------------------------
+for i in range(1,12):
+ length=1000.
+ ops.node(i, 0., (i-1)*length)
+#Node----------------------------------------------------
+
+#Mass---------------------------------------------------
+for i in range(1,12):
+ ops.mass(i, 1., 0., 0.)
+#Mass---------------------------------------------------
+
+#Constraint --------------------------------------------
+ops.fix(1, 1, 1, 1)
+for i in range(2,12):
+ ops.fix(i, 0, 1, 1)
+#Constraint --------------------------------------------
+
+#Element -----------------------------------------------
+ops.geomTransf('Linear', 1)
+A=2000.
+E=2050.
+IZ=72000000.
+for i in range(1,11):
+ ops.element('elasticBeamColumn',i, i, i+1, A, E, IZ, 1)
+#Element -----------------------------------------------
+
+#Recorder----------------------------------------------
+ops.recorder('Node', '-file', 'Node 11 ACC.csv', '-time', '-node', 11, '-dof', 1, 'accel')
+#Recorder----------------------------------------------
+
+cprint("Model Building Finished",'green')
+print("-"*50,)
+
+#Analysis-----------------------------------------------
+
+################EigenValue analysis#####################
+cprint('Eigenvalue Analysis has started','green')
+n=9
+eigen = ops.eigen(n)
+for i in range(0,n):
+ naf = math.sqrt(eigen[i]) / (2*math.pi)
+ print(str(i+1) + 'th Mode Frequency : ' + str(naf) + '(Hz)')
+cprint('Eigenvalue Analysis has ended','green')
+print("-"*50,)
+################Dynamic Analysis########################
+cprint("Dynamic Analysis has been started",'red')
+# 01 Define Pattern
+ops.timeSeries('Series', 1, '-dt', 0.01, '-filePath', 'motionMDF.csv')
+ops.pattern('UniformExcitation',1, 1, '-accel', 1)  #'UniformExcitation', $patternTag, ,$dir, '-accel' ,-vel, $ver0
+ops.rayleigh(0.6528, 0.0, 0.0, 0.0)  #rayleigh $alphaM $betaK $betaKinit $betaKcomm
+#Damping Coe가 너무 길면 에러발생.
+
+# Dynamic Analysis Execution
+ops.wipeAnalysis()                  #이전의 해석설정을 초기화 시킨다.
+ops.system('BandGeneral')
+ops.constraints('Plain')
+ops.algorithm("Newton")
+ops.numberer('RCM')
+ops.integrator("Newmark", 0.5, 0.25)  #gmmma beta
+ops.analysis("Transient")
+ops.analyze(7400,0.01) #Number of Iteration , Time Interval per iteration
+cprint("Dynamic Analysis has ended","red")
+print("-"*50,)
+ops.wipe()
+###################Dynamic Analysis END###################
+
+elapsed = timeit.default_timer() - start_time
+print("Elapsed time for the Anaysis : " + str(elapsed) + " (s)")
+
+# Plotting --------------------------------------------------------------
+ORGdata = pd.read_csv('Node 11 ACC.csv', sep=' ', names=['col1','col2'])
+print(ORGdata.size)
+plt.plot(ORGdata['col1'],ORGdata['col2'],'k', label= '11 NODE ACC')
+#MODdata = np.savetxt('Node 11 ACC.csv',np.c_[ORGdata['col1'], ORGdata['col2']],delimiter=',', header='Header \nHeader')
+plt.xlabel('Elapsed Time (s)', fontsize=15)
+plt.ylabel('Acceleration', fontsize=15)
+plt.legend()
+plt.tight_layout()
+plt.show()
+# Plotting --------------------------------------------------------------
