@@ -1,2 +1,2 @@
 # ops
-OPS is OpenSees Python　Module
+This gist is for uploading openSEES codes.
