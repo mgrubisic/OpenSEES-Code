@@ -1,0 +1,119 @@
+import opensees as ops
+import matplotlib.pyplot as plt
+import math
+import numpy as np
+import timeit
+import pandas as pd
+from termcolor import cprint
+start_time = timeit.default_timer()
+
+print('-----------------------')
+print('- OpenSeesPY Analysis -')
+print('- DONGHA KIM          -')
+print('- OSAKA UNIVERSITY    -')
+print('- InElastic Column    -')
+print('- Cyclic    Pushover  -')
+print('-----------------------')
+
+                                 ########### Model Building ###########
+
+# <editor-fold desc="Description">
+cprint('-'*50, 'green')
+cprint('Model Builder Started','green')
+ops.wipe()
+ops.model('Basic','-ndm',2,'-ndf',3)
+
+# N , mm , t
+g = 9800.               # 9800mm/s2
+U = 10**(-10)
+height = 1.
+elemass = 2.4e-9        # 2.4t/m3
+
+# Concrete 02
+fpc = -30.                              #Compression Strength
+Ec = 4700. * math.sqrt(np.abs(fpc))     #the density of concrete is 2.4t/m3
+epsc0 = -0.002
+fpcu = 0.2*fpc
+epsU = -0.01
+fpt = 0.1*(-fpc) # 10 % of the compression strength
+lam = 0.1        #
+Ect = 0.8*Ec
+# </editor-fold>
+
+# Define Nodes and Constraints
+ops.node(1, 0., 0.)
+ops.node(2, 0., height)
+ops.fix(1, 1, 1, 1)
+ops.mass(2, 1.0, 1e-5, 0.0)
+
+# Define Materials and Sections
+ops.uniaxialMaterial('Concrete02', 1, fpc ,epsc0 ,fpcu ,epsU ,lam ,fpt ,Ect)
+ops.uniaxialMaterial('Elastic', 2, Ec)
+
+ops.section('Aggregator', 1, 1, 'P', 2, 'Mz')
+ops.geomTransf('Linear', 1)
+ops.beamIntegration('Lobatto', 1, 1, 10)             #Integration Methods for Distributed Plasticity. Distributed plasticity methods permit yielding at any integration point along the element length.
+ops.element('dispBeamColumn', 1, 1, 2, 1, 1,'-mass',elemass)
+
+cprint('Model Building finished.','green')
+cprint('-'*50, 'green')
+
+                                        ########### Analysis ###########
+
+# Define Analysis Properties
+Fx = 0.0
+Fy = -1.0
+tolerance = float(1e-5)
+dU = 0.00001
+FDOF = 2 # y direction
+ops.wipeAnalysis()
+# Define Pattern
+ops.timeSeries('Linear', 1,'-factor', 1.0)
+ops.pattern('Plain', 1, 1)
+ops.load(2, Fx, Fy, 0.)
+print('Analysis Condition Determined')
+
+# Define Analysis Condition
+
+ops.constraints('Plain')
+ops.numberer('Plain')
+ops.system('BandGeneral')
+ops.test('NormUnbalance', tolerance, 10)
+ops.algorithm('Newton')
+ops.integrator('DisplacementControl', 2, 2, -dU)
+ops.analysis('Static')
+
+disp =[]
+force=[]
+
+def iteration_step():
+    global force, disp
+    ops.analyze(1)
+    disp += [ops.nodeDisp(2, 2)]
+    force += [ops.eleForce(1, 2)]
+
+def compression(iterations):
+    print("Compression")
+    ops.integrator('DisplacementControl', 2, 2, -dU) 
+    for j in range(iterations):
+        iteration_step()
+
+def tension():
+    print("Tension")
+    ops.integrator('DisplacementControl', 2, 2, dU)
+    iteration_step() #we need that first step for the condition of the while-loop
+    while force[-1] < force[-2]: # iterate until direction changes (non-linear deformation)
+        iteration_step()
+
+iterations = 7
+for i in range(iterations):
+    compression(200 + i*80)
+    tension()
+
+plt.plot(disp,force,'k')
+plt.legend()
+plt.xlabel('Strain')
+plt.ylabel('Stress')
+plt.grid(True)
+plt.tight_layout()
+plt.show()
