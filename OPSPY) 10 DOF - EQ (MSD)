@@ -1,0 +1,87 @@
+from opensees import *
+from termcolor import cprint
+import matplotlib.pyplot as plt
+import numpy as np
+import timeit
+import math
+import scipy.interpolate as scip
+
+start_time = timeit.default_timer()
+#--------------------------------------------------------------------------------------------------------------------#
+wipe()
+model('Basic','-ndm',2,'-ndf',3)
+
+# Define Nodes (10 DOF)
+height = 3000.
+Nnode = 11
+mas = [1., 0., 0.]
+for i in range(1,Nnode+1):
+    node(i, 0., height*(i-1),'-mass', *mas)
+# Define Constatint
+fix(1, 1,1,1)
+for i in range(2,Nnode+1):
+    fix(i, 0, 1, 1)
+# Define Material
+# Defien Element
+eleArgs = [1., 3.978e12, 1., 1]
+geomTransf('Linear', 1)
+for i in range(1, Nnode):
+    element('elasticBeamColumn', i, i, i+1, *eleArgs)
+
+''' Eigen Value Analysis
+n=9
+eigen = eigen(n)
+for i in range(0,n):
+ naf = math.sqrt(eigen[i]) / (2*math.pi)
+ print(str(i+1) + 'th Mode Frequency : ' + str(naf) + '(Hz)')
+cprint('Eigenvalue Analysis has ended','green')
+'''
+
+# Define Parttern
+gmotion = np.loadtxt('motionMDF.csv') # Array 로 불러옴
+gmlist=gmotion.tolist() # tolsit() 를 이용해서 List 로 바꿈
+value1 = gmlist # Value list 에 gmotion 삽입
+timeSeries('Sine', 2, 0.0, 100.0, 10.0,'-factor',100.0)
+timeSeries('Series', 1, '-dt', 0.01, '-values', *value1)  # Values에 s 넣는 것을 자꾸 잊어버림. 리스트는 apostrophe 로 넣을 것
+pattern('UniformExcitation', 1, 1, '-accel', 1) #psTag dir accel tsTag  #UniformExcitation = Relative Response
+# Define Analysis
+wipeAnalysis()                  #이전의 해석설정을 초기화 시킨다.
+system('BandGeneral')
+constraints('Plain')
+algorithm("Newton")
+numberer('RCM')
+integrator("Newmark", 0.5, 0.25)  #gmmma beta
+analysis("Transient")
+# Execute Analysis
+Node = 11
+DOF = 1
+Ele = 10
+Nstep = 7200
+disp = np.zeros((Nstep+1,Nnode+1)) # Nstep +1 행, Nnode+1 렬 (시간 축까지 합쳐서)
+
+for i in range(Nstep):
+    analyze(1, 0.01) # Step, TimeStep
+    disp[i+1,0] = getTime()
+    for j in range(1,Nnode+1):
+        disp[i+1,j] = nodeDisp(j,DOF)
+    cprint(str(i)+' th iteration calculating...','red')
+cprint("Analysis Completed",'blue')
+#--------------------------------------------------------------------------------------------------------------------#
+elapsed_time = timeit.default_timer() - start_time
+# Plotting
+np.savetxt('data.out',disp,delimiter=',')
+
+# Maximum Stody Displacement
+plt.subplot(1,2,1)
+for i in range(1,Nnode+1):
+    plt.plot(max(disp[:,i]),i,'ko')
+plt.xlabel("Displacement (mm)" ,fontsize=15)
+plt.ylabel("Stoty (F)",fontsize=15)
+# Maxinum Story Drift
+plt.subplot(1,2,2)
+for i in range(1,Node):
+    plt.plot((max(disp[:,i+1])-max(disp[:,i]))*100/height,i+1,'ko')
+plt.xlabel("Story Drift (%)" ,fontsize=15)
+plt.ylabel("Stoty (F)",fontsize=15)
+plt.tight_layout()
+plt.show()
