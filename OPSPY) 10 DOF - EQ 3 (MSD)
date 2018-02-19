@@ -1,3 +1,5 @@
+# Maximum Stody Drift and Displacement Code Added
+
 from opensees import *
 from termcolor import cprint
 import matplotlib.pyplot as plt
