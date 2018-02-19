@@ -1,0 +1,68 @@
+from opensees import *
+from termcolor import cprint
+import matplotlib.pyplot as plt
+import timeit
+import math
+import pandas as pd
+
+start_time = timeit.default_timer()
+#--------------------------------------------------------------------------------------------------------------------#
+wipe()
+model('Basic','-ndm',2,'-ndf',3)
+
+# Define Node
+node(1, 0., 0.)
+node(2, 0., 0.)
+
+# Define Constraints
+fix(1,1,1,1)
+fix(2,0,1,1)
+
+# Define Material
+ar = 0.7540    # Area of Rubber (m^2)
+hr = 0.400    # Total Thickness of Rubber (m)
+gr = 0.4e6    # Shear Modulus of Rubber (N/m^2)
+ap = 0.0314    # Area of Lead Plug (m^2)
+tp = 8.833e6    # Yield Stress of Lead Plug (N/m^2)
+alph = 0.588e6  # Shear Modulus of Lead Plug (N/m^2)
+beta = 13.0  # Ratio of initial stiffness to yielding Stiffness   initial / yield
+uniaxialMaterial('KikuchiAikenLRB', 1, 1, ar, hr, gr, ap, tp, alph, beta)
+
+# Defien Element
+element('zeroLength', 1, 1, 2, '-mat', 1, '-dir', 1)
+
+#recorder
+recorder('Element','-file','output.out','-ele', 1, 'deformationANDforces')
+
+# Define Pattern
+Px = 1.0
+Py = 0.
+Mz = 0.
+timeSeries('Linear',1)
+pattern('Plain',1,1)
+load(2,Px,Py,Mz)
+
+# Define Analysis
+wipeAnalysis()
+constraints('Transformation')
+numberer('RCM')
+system('BandGeneral')
+test('NormUnbalance', 1.0e-5, 10)
+algorithm('Newton')
+
+# Execute Analysis
+factor = 1.0
+for i in range(17):
+    integrator('DisplacementControl',2,1,0.001*factor)
+    analysis('Static')
+    analyze(200*i)
+    factor = (-1.0)**i
+
+data = pd.read_csv('output.out', sep=' ',names=['col1','col2'])
+plt.plot(data['col1'],data['col2'], 'k')
+plt.xlabel('Displacement (m)',fontsize=15)
+plt.ylabel('Shear Force (N)', fontsize=15)
+plt.title('OpenSEES LRB', fontsize=15)
+plt.tight_layout()
+plt.grid(True)
+plt.show()
