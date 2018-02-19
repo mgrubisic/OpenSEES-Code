@@ -1,0 +1,270 @@
+#########################################################################
+#---------------Department of Civil, Structural and Environmental Engineering--------------------------#
+#----------------------------------------University at Buffalo-----------------------------------------#
+#Modeling of elastomeric bearings in compression and tension for response history analysis#
+#Written By: Manish Kumar (mkumar2@buffalo.edu)#
+#Date: July, 2011 #
+#########################################################################
+
+#Units: kips, in, sec
+
+#Remove existing model
+wipe
+
+#-----------------------------------------------------------
+#User Defined Parameters
+#-----------------------------------------------------------
+set g 9.810;                 						# Acceleration due to gravity
+set pi 3.14159;            							# Value of pi
+set M 146890;            							# Mass of superstructure
+set alpha 0.05;										# Post-elastic stiffness ratio in shear
+#set G 0.450e+06;              						# Shear modulus of rubber obtained from testing of elastomeric bearings at large shear strains
+set G 0.870e+06;									# This value was calculated from Kd=1080000 N/m as provided in the bearing
+set K 2000e+06;                   					# Bulk modulus of rubber
+set ts 4.76e-03;                 					# Thickness of steel shim plates
+set tr 9.525e-03;             						# Thicness of a single rubber layer
+set n 16;                      						# Number of rubber layers
+set D1 139.7e-03;               					# Internal diameter of lead rubber bearing
+set D2 508e-03;               						# Outer diameter of lead rubber bearing
+set tc 12.7e-03;                					# Bearing cover
+set kc 20;											# Parameter for vertical cavitation
+set PhiM 0.75;										# Maximum damage index
+set ac 1.0;											# Strength degradation parameter						
+set cd 128000;										# Viscous damping parameter
+set sDratio 0.5;									# Shear distance ratio
+set mb 0.0;											# Mass of the bearing
+
+set tag1 0;											# Tag for strength degradation in shear due to heating
+set tag2 0;											# Tag for cavitation and post-cavitation
+set tag3 0;											# Tag for buckling load variation
+set tag4 0;											# Tag horizontal stiffness variation
+set tag5 1;											# Tag for vertical stiffness variation
+
+#For heating effects in case of lead rubber bearings
+set Fyl0 13.00e+06;									# Yield stress of lead initially
+set TL1 20;                 						# Initial temperature in Fahrenheit
+set qL 11200;        								# Density of lead in kg/m3
+set cL 130;                  						# Specific heat of lead in N-m/Kg oC
+set kS 50;											# Thermal conductivity of steel m2/s
+set aS 1.41e-05;				   					# Diffusitivity
+
+#-------------------------------------------------------------------
+#Derived Parameters
+#-------------------------------------------------------------------
+
+set A [expr ($pi/4)*(($D2+$tc)**2-$D1**2)];             				# Bonded area
+set S [expr ($D2*$D2-$D1*$D1)/(4*$D2*$tr)];         					# Shape factor
+set Tr [expr $n*$tr];                       							# Total rubber thickness
+set h [expr $Tr + ($n-1)*$ts];          								# Total height of bearing
+set r [expr $D2/$D1];                   			  					# Outer to inner diameter ratio
+set F [expr ($r*$r+1)/(($r-1)*($r-1)) + (1+$r)/((1-$r)*log($r))];       # Diameter modification factor
+
+#For horizontal motion
+set Qd [expr $Fyl0*$pi*$D1*$D1/4];          				# Characteristic strength of lead rubber bearing
+set k2 [expr $G*$A/$Tr]; 									# Post-yield stiffness of bearing
+set k1 [expr $k2/$alpha];             						# Elastic stiffness of bearing
+set Fy_h [expr $Qd/(1-$alpha)];								# Yield strength of elastomeric bearing in horizontal direction
+set uy_h [expr $Fy_h/$k1];                   				# Yield displacement of elastomeric bearing in horizontal direction (same as uy_h of lead)
+set Ccr [expr 2*sqrt(($k2)*$M)];							# Critical damping
+set DampingRatio [expr $cd/$Ccr];  							# Damping in the elastomeric bearing
+
+
+#For vertical motion
+set Ec [expr 1.0/((1.0/(6.0*$G*$S*$S*$F))+(4.0/(3.0*$K)))];           	# Compressive modulus of elastomeric bearing
+set E [expr 3*$G];                                                      # Elastic modulus
+set I [expr ($pi/64)*(($D2)**4-$D1**4)];                           		# Moment of inertia of bearing
+set r [expr sqrt($I/$A)];                                               # Radius of gyration 
+set Kpre [expr $A*$Ec/$Tr ];                                       		# Pre-cavitation stiffness in Tension
+set Kpost [expr $A*$E/$Tr ];                                       		# Post-cavitation stiffness in Tension
+set Fc [expr 3*$G*$A];                                                	# Cavitation force
+set uc [expr $Fc/$Kpre ];                                              	# Cavitation displacement
+set Er [expr $Ec/3];                                     				# Rotation modulus of bearing
+set As [expr $A*$h/$Tr];                                 				# Adjusted shear area of bearing
+set Is [expr $I*$h/$Tr];                                				# Adjusted moment of intertia of bearing
+set Pe [expr $pi*$pi*$Er*$Is/($h*$h)];                   				# Euler buckling load of bearing
+set Pcr [expr -sqrt($Pe*$G*$As)];     									# Critical buckling load in compression
+set ucr [expr $Pcr/$Kpre];                                             	# Critical displacement in compression
+
+
+#print parameters
+# puts " G: $G, K, $K, A : $A, Tr: $Tr, h: $h, S: $S, F: $F"
+# puts " Horizontal motion: k1: $k1, k2: $k2, Fy_h: $Fy_h"
+# puts " Vertical motion: Ec: $Ec, E: $E, r: $r, Kpre: $Kpre, Kpost: $Kpost, Fc: $Fc, uc: $uc, Pcr: $Pcr, ucr: $ucr"
+#---------------------------------------------------------------------------------------------
+#Start of model generation
+#---------------------------------------------------------------------------------------------
+
+# Elastomeric bearing is modeled as 2 node and 3 DOF element of height h
+#Create Model Builder
+model basic -ndm 3 -ndf 6
+
+# Create nodes
+node 1 0 0 0
+node 2 0 $h 0.0
+
+# Define single point constraints (Constrain the isolator against rotation at both nodes)
+fix 1 1 1 1 1 1 1
+fix 2 0 0 0 1 1 1
+
+#Define material and element for elastomeric bearings
+
+#element elastomericBearing $eleTag $iNode $jNode $ke $fy $alpha -P $matTag -Mz $matTag <-orient $x1 $x2 $x3 $y1 $y2 $y3> <-mass $m>
+#element elastomericBearing 1 1 2 $k1 $Fy_h [expr $k2/$k1] -P 3 -T 3 -My 3 -Mz 3
+element LeadRubberX 1 1 2 $Fy_h $alpha $G $K $D1 $D2 $ts $tr $n 0 1 0 1 0 0 $kc $PhiM $ac $sDratio $mb $cd $tc $qL $cL $kS $aS $tag1 $tag2 $tag3 $tag4 $tag5
+#-------------------------------------------------------------------------------------------------
+#Define loads
+#-------------------------------------------------------------------------------------------------
+
+# Apply gravity load on isolated mass
+set P [expr $M*$g]
+
+#Create a plain load pattern with linear timeseries
+
+pattern Plain 1 "Linear" {
+	
+	load 2 0.0 -[expr $P] 0.0 0.0 0.0 0.0
+}
+
+#---------------------------------------------------------------------------
+#Start of analysis generation
+#---------------------------------------------------------------------------
+system BandSPD
+constraints Transformation
+numberer RCM
+test NormDispIncr 1.0e-15 10 3
+algorithm Newton
+integrator LoadControl 1
+analysis Static
+
+# -------------------------------------------------------------------------
+# Start of recorder generation
+# -------------------------------------------------------------------------
+
+#Create a recorder to monitor nodal displacements and force in elastomeric bearing element
+#recorder Node -file dispGravity.out -time -node 2 -dof 1 2 3 disp
+#recorder Element -file forceGravity.out -time -ele 1 force
+
+# -------------------------------------------------------------------------
+# Finally perform the analysis
+# -------------------------------------------------------------------------
+
+#As load increment was given as 0.1, 10 analysis steps are assigned to linearly increase the load from 0 to P.
+
+set ns 0
+set ok 0
+
+# while {$ok == 0 && $ns <10} {
+
+	# set ok [analyze 1]
+	# set currentDisp [nodeDisp 2 2]
+	# if {$currentDisp<$ucr} {
+	# set ok 2;
+	# break
+	# }
+
+	#if the analysis fails try initial tangent iteration
+	# if { $ok != 0 } {
+	    # puts "regular newton failed .. lets try an initail stiffness for this step"
+	    # test NormDispIncr 1.0e-12  1000 
+	    # algorithm ModifiedNewton -initial
+	    # set ok [analyze 1]
+	    # if {$ok == 0} {puts "that worked .. back to regular newton"}
+	    # test NormDispIncr 1.0e-12  1000 
+	    # algorithm Newton
+	# }
+	
+	# incr ns 1
+# }
+
+set ok [analyze 1]
+
+
+# Print a message to indicate if analysis succesfull or not
+if {$ok == 0} {
+   puts "Gravity analysis completed SUCCESSFULLY";
+}
+if {$ok == 2} {
+   puts "Failure in buckling";
+} 
+if {($ok !=0) && ($ok !=2)} {
+   puts "Gravity analysis completed FAILED";    
+}
+#Print out the state of element 1
+#print ele 1
+#print material 
+
+#source the gravity analysis file
+source LDgravity.tcl
+
+#set the gravity loads to be constant & reset the time in the domain
+loadConst -time 0.0
+
+#assign mass to the node 2
+mass 2 $M $M $M 0 0 0
+
+#set paramenters
+set dt [expr 0.01]
+set dt1 [expr 0.01]
+
+#set timeseries
+set dispSeries "Series -dt $dt1 -filePath LDDisp.txt -factor 1";
+set velSeries "Series -dt $dt1 -filePath LDVel.txt -factor 1";
+set accelSeries "Series -dt $dt1 -filePath LDAcc.txt -factor 1";
+
+pattern MultiSupport 2 {
+groundMotion 1 Plain -disp $dispSeries -vel $velSeries; #-accel $accelSeries
+imposedMotion 2 1 1;
+} ;
+
+#set the rayleigh damping factors for nodes and elements
+#rayleigh 0.0 0.0 0.0 0.000625
+
+#output recorder
+#Create a recorder to monitor nodal displacements
+#recorder Node -file force.out -time -node 2 -dof 2 reaction
+recorder Element -file basicForce.out -time -ele 1 basicForce
+recorder Element -file basicDisplacement.out -time -ele 1 basicDisplacement
+#recorder Element -file Element1.out -time -ele 1 section 1 fiber 0.10 0.10 stressStrain
+#-----------------------------------------------------
+#Analysis
+#------------------------------------------------------
+
+system SparseGeneral
+constraints Transformation
+test NormDispIncr 1.0e-5 20 0
+algorithm Newton
+numberer Plain
+integrator Newmark 0.5 0.25
+analysis Transient
+
+# set some variables
+set tFinal [expr 7470*0.01]
+set tCurrent [getTime]
+set ok 0
+
+# Perform the transient analysis
+while {$ok == 0 && $tCurrent < $tFinal} {
+    
+    set ok [analyze 1 $dt]
+    
+    # if the analysis fails try initial tangent iteration
+    if {$ok != 0} {
+	puts "regular newton failed .. lets try an initail stiffness for this step"
+	test NormDispIncr 1.0e-12  100 0
+	algorithm ModifiedNewton -initial
+	set ok [analyze 1 $dt]
+	if {$ok == 0} {puts "that worked .. back to regular newton"}
+	test NormDispIncr 1.0e-12  10 
+	algorithm Newton
+    }
+    
+    set tCurrent [getTime]
+}
+
+# Print a message to indicate if analysis succesfull or not
+if {$ok == 0} {
+   puts "Transient analysis completed SUCCESSFULLY";
+} else {
+   puts "Transient analysis completed FAILED";    
+}
+#print ele 1
