@@ -1,3 +1,5 @@
+# Height 3m , Fundamental Period 1s, Uniform Excitation (Relative Output)
+
 from opensees import *
 from termcolor import cprint
 import matplotlib.pyplot as plt
