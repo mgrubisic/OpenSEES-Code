@@ -1,5 +1,3 @@
-# Maximum Stody Drift and Displacement Code Added
-
 from opensees import *
 from termcolor import cprint
 import matplotlib.pyplot as plt
@@ -30,60 +28,87 @@ geomTransf('Linear', 1)
 for i in range(1, Nnode):
     element('elasticBeamColumn', i, i, i+1, *eleArgs)
 
-''' Eigen Value Analysis
 n=9
 eigen = eigen(n)
 for i in range(0,n):
  naf = math.sqrt(eigen[i]) / (2*math.pi)
  print(str(i+1) + 'th Mode Frequency : ' + str(naf) + '(Hz)')
 cprint('Eigenvalue Analysis has ended','green')
-'''
 
 # Define Parttern
 gmotion = np.loadtxt('motionMDF.csv') # Array 로 불러옴
 gmlist=gmotion.tolist() # tolsit() 를 이용해서 List 로 바꿈
 value1 = gmlist # Value list 에 gmotion 삽입
-timeSeries('Sine', 2, 0.0, 100.0, 10.0,'-factor',100.0)
-timeSeries('Series', 1, '-dt', 0.01, '-values', *value1)  # Values에 s 넣는 것을 자꾸 잊어버림. 리스트는 apostrophe 로 넣을 것
-pattern('UniformExcitation', 1, 1, '-accel', 1) #psTag dir accel tsTag  #UniformExcitation = Relative Response
+timeSeries('Trig', 1, 0.0, 100.0, 10.0,'-factor',1.0)
+timeSeries('Series', 2, '-dt', 0.01, '-values', *value1)  # Values에 s 넣는 것을 자꾸 잊어버림. 리스트는 apostrophe 로 넣을 것
+# Multiple Support's output is absolute (global coordination)
+#pattern('MultipleSupport', 1)
+#groundMotion(1, 'Plain', '-accel', 2) # gmtag, Plain, str, tsTag
+#imposedMotion(1, 1, 1)
+
+# Uniform Exication's output is relative (local coordination)
+pattern('UniformExcitation', 1, 1, '-accel', 2) #psTag dir accel tsTag  #UniformExcitation = Relative Response
+rayleigh(0.4704, 0.0004, 0.0, 0.0)
+
 # Define Analysis
 wipeAnalysis()                  #이전의 해석설정을 초기화 시킨다.
 system('BandGeneral')
-constraints('Plain')
-algorithm("Newton")
+constraints('Transformation')
+algorithm('Newton')
 numberer('RCM')
-integrator("Newmark", 0.5, 0.25)  #gmmma beta
-analysis("Transient")
+integrator('Newmark', 0.5, 0.25)  #gmmma beta
+analysis('Transient')
+
 # Execute Analysis
 Node = 11
 DOF = 1
 Ele = 10
-Nstep = 7200
+Nstep = 7000
 disp = np.zeros((Nstep+1,Nnode+1)) # Nstep +1 행, Nnode+1 렬 (시간 축까지 합쳐서)
+accel = np.zeros((Nstep+1,Nnode+1))
 
 for i in range(Nstep):
     analyze(1, 0.01) # Step, TimeStep
     disp[i+1,0] = getTime()
     for j in range(1,Nnode+1):
         disp[i+1,j] = nodeDisp(j,DOF)
+    accel[i+1,0] = getTime()
+    for k in range(1,Nnode+1):
+        accel[i+1,k] = nodeAccel(k,DOF)
     cprint(str(i)+' th iteration calculating...','red')
 cprint("Analysis Completed",'blue')
 #--------------------------------------------------------------------------------------------------------------------#
 elapsed_time = timeit.default_timer() - start_time
+print(elapsed_time, '(s) taken.')
+
 # Plotting
 np.savetxt('data.out',disp,delimiter=',')
 
 # Maximum Stody Displacement
-plt.subplot(1,2,1)
+plt.subplot(2,2,1)
 for i in range(1,Nnode+1):
     plt.plot(max(disp[:,i]),i,'ko')
 plt.xlabel("Displacement (mm)" ,fontsize=15)
 plt.ylabel("Stoty (F)",fontsize=15)
+
 # Maxinum Story Drift
-plt.subplot(1,2,2)
+plt.subplot(2,2,2)
 for i in range(1,Node):
-    plt.plot((max(disp[:,i+1])-max(disp[:,i]))*100/height,i+1,'ko')
+    plt.plot((max(disp[:,i+1], key=abs) - max(disp[:,i], key=abs))*100/height,i+1,'ko')
 plt.xlabel("Story Drift (%)" ,fontsize=15)
 plt.ylabel("Stoty (F)",fontsize=15)
+
+# Accel
+plt.subplot(2,2,3)
+plt.plot(accel[:,0], accel[:,2])
+plt.xlabel('time (s)',fontsize=15)
+plt.ylabel('Accel (mm/s2)',fontsize=15)
+plt.text(50, 20, 'Max: '+str(max(disp[:,2], key=abs)), fontsize=10)
+
+plt.subplot(2,2,4)
+plt.plot(accel[:,0], accel[:,11],'k')
+plt.xlabel('time (s)',fontsize=15)
+plt.ylabel('Accel (mm/s2)',fontsize=15)
+plt.text(50, 50, 'Max: '+str(max(disp[:,11], key=abs)), fontsize=10)
 plt.tight_layout()
 plt.show()
