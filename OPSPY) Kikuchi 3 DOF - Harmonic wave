@@ -1,0 +1,94 @@
+from opensees import *
+from termcolor import cprint
+import matplotlib.pyplot as plt
+import numpy as np
+import timeit
+import math
+import scipy.interpolate as scip
+
+start_time = timeit.default_timer()
+#--------------------------------------------------------------------------------------------------------------------#
+wipe()
+model('Basic','-ndm',2,'-ndf',3)
+height = 3.0
+Nnode= 3
+Nmass = 10000.0 # kg ?
+g=9.8 #m/s2
+node(1, 0., 0.,'-mass', 0.0, 1e-9, 0.0)
+node(2, 0., 0., '-mass', Nmass, 0. ,0.0)
+node(3, 0., height, '-mass', Nmass, 0.0, 0.0)
+
+fix(1, 1,1,1)
+fix(2, 0,1,1) # 1과 2를 전부 고정 ?
+fix(3, 0,1,1)
+
+ar = 0.7540    # Area of Rubber (m^2)
+hr = 0.400    # Total Thickness of Rubber (m)
+gr = 0.4e6    # Shear Modulus of Rubber (N/m^2)
+ap = 0.0314    # Area of Lead Plug (m^2)
+tp = 8.833e6    # Yield Stress of Lead Plug (N/m^2)
+alph = 0.588e6  # Shear Modulus of Lead Plug (N/m^2)
+beta = 13.0  # Ratio of initial stiffness to yielding Stiffness   initial / yield
+uniaxialMaterial('KikuchiAikenLRB', 1, 1, ar, hr, gr, ap, tp, alph, beta)
+element('zeroLength', 1, 1, 2, '-mat', 1, '-dir', 1)
+geomTransf('Linear', 1)
+eleArgs = [1., 2.225e2, 1., 1]
+element('elasticBeamColumn', 2, 2, 3, *eleArgs)
+'''
+eigen=eigen(1)
+print(eigen)
+naf = math.sqrt(eigen) / (2 * math.pi)
+print('funda freq : ', naf)
+'''
+#Recorder
+recorder('Node','-file','Nodedisp.out','-time','-node',1,2,3,'-dof',1,2,'disp')
+recorder('Node','-file','Nodereac.out','-time','-node',1,2,3,'-dof',1,2,'reaction')
+recorder('Element','-file','LRB.out','-time','-ele',1,'deformationsANDforces')
+recorder('Element','-file','el1.out','-time','-ele',2,'globalForce')
+
+#gravity
+timeSeries('Linear',1)
+pattern('Plain',1, 1) #pttag tstag
+load(3, 0.0, Nmass*g, 0.0)
+load(2, 0.0, Nmass*g, 0.0)
+
+wipeAnalysis()
+numberer('RCM')
+constraints('Plain')
+system('BandGeneral')
+algorithm('Newton')
+test('EnergyIncr', 1e-5, 6)
+integrator('LoadControl', 0.1)
+analysis('Static')
+analyze(10)
+loadConst('-time', 0.0)
+print('Gravity Adopted')
+
+wipeAnalysis()
+timeSeries('Sine', 2, 0.0, 100.0, 1.0, '-factor', 1.5)
+#pattern('UniformExcitation', 2, 1, '-disp', 2) #ptTag dir str tsTag
+pattern('MultipleSupport', 2) #ptTag
+groundMotion(1, 'Plain', '-disp', 2) # gmtag, Plain, str, tsTag
+imposedMotion(1, 1, 1) #ndTag #direction #gmTag
+
+numberer('RCM')
+constraints('Transformation')
+system('BandGeneral')
+test('NormDispIncr', 1e-6, 25)
+algorithm('Newton')
+integrator('Newmark', 0.6, 0.3025)  #gmmma beta
+analysis('Transient')
+analyze(200000,1e-4)
+wipe()
+
+disp = np.genfromtxt('Nodedisp.out', delimiter=' ', skip_header=10)
+LRB = np.genfromtxt('LRB.out', delimiter=' ', skip_header=10)
+#disp=np.loadtxt('Nodedisp.out', delimiter=' ')
+#LRB=np.loadtxt('LRB.out', delimiter=' ')
+
+f, ax = plt.subplots(2,2)
+ax[0,0].plot(disp[:,0],disp[:,1],'r')
+ax[0,1].plot(disp[:,0],disp[:,5],'b')
+ax[1,1].plot(LRB[:,1],LRB[:,2])
+plt.tight_layout()
+plt.show()
