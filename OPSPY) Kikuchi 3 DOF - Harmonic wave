@@ -19,7 +19,7 @@ node(2, 0., 0., '-mass', Nmass, 0. ,0.0)
 node(3, 0., height, '-mass', Nmass, 0.0, 0.0)
 
 fix(1, 1,1,1)
-fix(2, 0,1,1) # 1과 2를 전부 고정 ?
+fix(2, 0,1,1) 
 fix(3, 0,1,1)
 
 ar = 0.7540    # Area of Rubber (m^2)
@@ -76,7 +76,7 @@ constraints('Transformation')
 system('BandGeneral')
 test('NormDispIncr', 1e-6, 25)
 algorithm('Newton')
-integrator('Newmark', 0.6, 0.3025)  #gmmma beta
+integrator('Newmark', 0.6, 0.3025)  #gmmma beta #Sometimes, Newmark - Average Accelation Does not Converge
 analysis('Transient')
 analyze(200000,1e-4)
 wipe()
