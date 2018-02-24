@@ -12,7 +12,7 @@ wipe()
 model('Basic','-ndm',2,'-ndf',3)
 height = 3.0
 Nnode= 3
-Nmass = 15e3 # kg ?
+Nmass = 300e3 # kg # 면압 8Mpa 로 시험 (면압 x 면적 / g = 질량)
 g=9.8 #m/s2
 node(1, 0., 0.,'-mass', 0.0, 1e-9, 0.0)
 node(2, 0., 0., '-mass', Nmass, 0. ,0.0)
@@ -32,14 +32,9 @@ beta = 13.0  # Ratio of initial stiffness to yielding Stiffness   initial / yiel
 uniaxialMaterial('KikuchiAikenLRB', 1, 1, ar, hr, gr, ap, tp, alph, beta)
 element('zeroLength', 1, 1, 2, '-mat', 1, '-dir', 1)
 geomTransf('Linear', 1)
-eleArgs = [1., 2.225e5, 1., 1]
+eleArgs = [1., 1e9, 1., 1]
 element('elasticBeamColumn', 2, 2, 3, *eleArgs)
-'''
-eigen=eigen(1)
-print(eigen)
-naf = math.sqrt(eigen) / (2 * math.pi)
-print('funda freq : ', naf)
-'''
+
 #Recorder
 recorder('Node','-file','Nodedisp.out','-time','-node',1,2,3,'-dof',1,2,'disp')
 recorder('Node','-file','Nodereac.out','-time','-node',1,2,3,'-dof',1,2,'reaction')
@@ -65,7 +60,7 @@ loadConst('-time', 0.0)
 print('Gravity Adopted')
 
 wipeAnalysis()
-timeSeries('Sine', 2, 0.0, 100.0, 1.0, '-factor', 1.1)
+timeSeries('Sine', 2, 0.0, 100.0, 0.25, '-factor', 0.5)
 #pattern('UniformExcitation', 2, 1, '-disp', 2) #ptTag dir str tsTag
 pattern('MultipleSupport', 2) #ptTag
 groundMotion(1, 'Plain', '-disp', 2) # gmtag, Plain, str, tsTag
@@ -79,7 +74,11 @@ algorithm('Newton')
 integrator('TRBDF2')
 #integrator('Newmark', 0.6, 0.3025)  #gmmma beta
 analysis('Transient')
-analyze(20000,1e-4)
+nat=[]
+for i in range(30000):
+    analyze(1, 1e-4)
+    eig = eigen(1)
+    nat += [(2 * math.pi) / math.sqrt(eig)]
 wipe()
 
 disp = np.genfromtxt('Nodedisp.out', delimiter=' ', skip_header=10)
@@ -88,6 +87,8 @@ LRB = np.genfromtxt('LRB.out', delimiter=' ', skip_header=10)
 f, ax = plt.subplots(2,2)
 ax[0,0].plot(disp[:,0],disp[:,1],'r')
 ax[0,0].set(title="Node 1",xlabel='time(s)', ylabel='Disp (m)')
+ax[0,1].plot(nat,'k')
+ax[0,1].set(title='Fundamental Period', xlabel='Analysis Step', ylabel='(s)')
 ax[1,0].plot(disp[:,0],disp[:,5],'b')
 ax[1,0].set(title="Node 2",xlabel='time(s)', ylabel='Disp (m)')
 ax[1,1].plot(LRB[:,1],LRB[:,2])
@@ -95,4 +96,3 @@ ax[1,1].set(title="LRB Hysteresis",xlabel='Disp (m)', ylabel='Force (N)')
 plt.legend()
 plt.tight_layout()
 plt.show()
-
