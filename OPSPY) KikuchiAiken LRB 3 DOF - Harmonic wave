@@ -12,27 +12,27 @@ wipe()
 model('Basic','-ndm',2,'-ndf',3)
 height = 3.0
 Nnode= 3
-Nmass = 10000.0 # kg ?
+Nmass = 15e3 # kg ?
 g=9.8 #m/s2
 node(1, 0., 0.,'-mass', 0.0, 1e-9, 0.0)
 node(2, 0., 0., '-mass', Nmass, 0. ,0.0)
 node(3, 0., height, '-mass', Nmass, 0.0, 0.0)
 
 fix(1, 1,1,1)
-fix(2, 0,1,1) 
+fix(2, 0,1,1) # 1과 2를 전부 고정 ?
 fix(3, 0,1,1)
 
 ar = 0.7540    # Area of Rubber (m^2)
-hr = 0.400    # Total Thickness of Rubber (m)
-gr = 0.4e6    # Shear Modulus of Rubber (N/m^2)
-ap = 0.0314    # Area of Lead Plug (m^2)
-tp = 8.833e6    # Yield Stress of Lead Plug (N/m^2)
-alph = 0.588e6  # Shear Modulus of Lead Plug (N/m^2)
+hr = 0.200    # Total Thickness of Rubber (m)
+gr = 0.385e6    # Shear Modulus of Rubber (N/m^2)
+ap = 0.031416    # Area of Lead Plug (m^2)
+tp = 8.967e6    # Yield Stress of Lead Plug (N/m^2)
+alph = 0.583e6  # Shear Modulus of Lead Plug (N/m^2)
 beta = 13.0  # Ratio of initial stiffness to yielding Stiffness   initial / yield
 uniaxialMaterial('KikuchiAikenLRB', 1, 1, ar, hr, gr, ap, tp, alph, beta)
 element('zeroLength', 1, 1, 2, '-mat', 1, '-dir', 1)
 geomTransf('Linear', 1)
-eleArgs = [1., 2.225e2, 1., 1]
+eleArgs = [1., 2.225e5, 1., 1]
 element('elasticBeamColumn', 2, 2, 3, *eleArgs)
 '''
 eigen=eigen(1)
@@ -65,7 +65,7 @@ loadConst('-time', 0.0)
 print('Gravity Adopted')
 
 wipeAnalysis()
-timeSeries('Sine', 2, 0.0, 100.0, 1.0, '-factor', 1.5)
+timeSeries('Sine', 2, 0.0, 100.0, 1.0, '-factor', 1.1)
 #pattern('UniformExcitation', 2, 1, '-disp', 2) #ptTag dir str tsTag
 pattern('MultipleSupport', 2) #ptTag
 groundMotion(1, 'Plain', '-disp', 2) # gmtag, Plain, str, tsTag
@@ -76,19 +76,23 @@ constraints('Transformation')
 system('BandGeneral')
 test('NormDispIncr', 1e-6, 25)
 algorithm('Newton')
-integrator('Newmark', 0.6, 0.3025)  #gmmma beta #Sometimes, Newmark - Average Accelation Does not Converge
+integrator('TRBDF2')
+#integrator('Newmark', 0.6, 0.3025)  #gmmma beta
 analysis('Transient')
-analyze(200000,1e-4)
+analyze(20000,1e-4)
 wipe()
 
 disp = np.genfromtxt('Nodedisp.out', delimiter=' ', skip_header=10)
 LRB = np.genfromtxt('LRB.out', delimiter=' ', skip_header=10)
-#disp=np.loadtxt('Nodedisp.out', delimiter=' ')
-#LRB=np.loadtxt('LRB.out', delimiter=' ')
 
 f, ax = plt.subplots(2,2)
 ax[0,0].plot(disp[:,0],disp[:,1],'r')
-ax[0,1].plot(disp[:,0],disp[:,5],'b')
+ax[0,0].set(title="Node 1",xlabel='time(s)', ylabel='Disp (m)')
+ax[1,0].plot(disp[:,0],disp[:,5],'b')
+ax[1,0].set(title="Node 2",xlabel='time(s)', ylabel='Disp (m)')
 ax[1,1].plot(LRB[:,1],LRB[:,2])
+ax[1,1].set(title="LRB Hysteresis",xlabel='Disp (m)', ylabel='Force (N)')
+plt.legend()
 plt.tight_layout()
 plt.show()
+
