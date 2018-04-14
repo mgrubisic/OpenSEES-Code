@@ -1,7 +1,7 @@
  To model spring elements, twoNodeLink Element and Elastic Material were used. 
  Eigenvalues of the model were almost identical to the examples model in the book.
 
-####################################################################
+#####################################################################
 ## OpenSees Python 10 DOF Elastic Earthquake Response Analysis #####
 ## 2018 April                                                  #####
 ## Fixed Base Model Y-DIR of the Building Model                #####
@@ -22,6 +22,7 @@ import math
 start_time = timeit.default_timer()
 cprint("OpenSEES Analysis has Strated",'red')
 #------------------------ Model Building started ---------------------------#
+cprint("Stage 1 : Model Builder Initiated",'blue')
 # Model Dimension
 ops.wipe()
 ops.model('Basic','-ndm',2,'-ndf',3)
@@ -36,35 +37,126 @@ for i in range(1,Nnode+1):
 FloorMass = [759.,677.,677.,677.,677.,
              674.,659.,551.,551.,494.] # Unit = t
 for i in range(1,Nnode+1):
-    ops.mass(i, FloorMass[i-1], 0.0, 0.0) # Mass direction: allowable direction of vibrations e.g. you may exclude vertical; 
-                                            vibrations (of floors) while analysis a multi-story building with rigid floor systems 
-                                            or horizontal ones for a single slab (footfall analysis).
+    ops.mass(i, FloorMass[i-1], 0.0, 0.0) # Mass direction: allowable direction of vibrations e.g. you may exclude vertical; vibrations (of floors) while analysis a multi-story building with rigid floor systems or horizontal ones for a single slab (footfall analysis).
 
 # Define Constraints
 ops.fix(1,1,1,1)
 for i in range(2,Nnode+1):
-    ops.fix(i,0,1,1)
+    ops.fix(i,0, 1, 1)
 
 # Define Elements
 ops.geomTransf('Linear',1)
-E = [17198., 16893., 14054.,11774., 9813., 7909., 5268., 3936., 2841.]
+EY = [17198., 16893., 14054.,11774., 9813., 7909., 5268., 3936., 2841.] # Unit : kN
 for i in range(1,Nnode):
-    ops.uniaxialMaterial('Elastic', i, E[i-1]*1e3)
+    ops.uniaxialMaterial('Elastic', i, EY[i-1]*1e3) # Stiffness must be multiplied by 10**3 since the unit is N here.
 for i in range(1,Nnode):
     ops.element('twoNodeLink', i, i, i+1, '-mat', i, '-dir', 1,'-doRayleigh','yes') # y-dir only, Rayleigh Included
+
+cprint("Stage 1 : Model Builder Completed",'blue')
+cprint("-"*50, 'blue')
 #------------------------ Model Building completed ---------------------------#
 
 #------------------------ Model Eigenvalue Analysis Started ------------------#
+cprint("Stage 2 : Eigenvalue Analysis Initiated",'blue')
 Neigen=5
 eigen = ops.eigen(Neigen)
 for i in range(0,Neigen):
  naf = math.sqrt(eigen[i]) / (2*math.pi) # eigenvalue = 2 pi f
  print(str(i+1) + 'th Mode Frequency : ' + str(round(naf,5)) + '(Hz) & ' + 'Period : ' + str(round(1/naf,5)) + '(s)')
+cprint("Stage 2 : Eigenvalue Analysis Completed",'blue')
+cprint("-"*50, 'blue')
 #------------------------ Model Eigenvalue Analysis Completed ----------------#
 
-#------------------------ Analysis Terminated ---------------------------#
+#------------------------ Gravity Analysis Initiated  ----------------------#
+cprint("Stage 3 : Gravity Analysis Initiated",'blue')
+# Define Pattern for Gravity Analysis
+g = 9800. #mm/s2
+ops.timeSeries('Linear', 1)
+ops.pattern('Plain', 1, 1)
+for i in range(1,Nnode+1):
+    ops.load(i, 0., FloorMass[i-1]*g, 0.) # X Y RZ
+
+# Define Analysis for Gravity Analysis
+ops.wipeAnalysis()
+ops.system('BandGeneral')
+ops.constraints('Plain')
+ops.algorithm('Linear')
+ops.numberer('RCM')
+ops.integrator('LoadControl', 0.1)
+ops.analysis('Static')
+ops.analyze(10)
+ops.loadConst('-time', 0.)
+cprint("Stage 3 : Gravity has been Adopted", 'blue')
+cprint("-"*50, 'blue')
+#------------------------ Gravity Analysis Completed  ----------------------#
+
+#------------------------ EQ Analysis Initiated  ---------------------------#
+cprint("Stage 4 : Earthquake Analysis Initiated",'blue')
+# Define Pattern
+gmcsv = np.loadtxt('motionMDF.csv') # Unit = mm/s2 (MAX 3490 MIN -3960)
+gmlist = gmcsv.tolist()
+ops.timeSeries('Series', 2, '-dt', 0.01, '-values',*gmlist)
+ops.pattern('UniformExcitation', 2, 1, '-accel', 2)
+
+# Define Rayleigh Damping
+h = 0.05
+alpha = (2*math.sqrt(eigen[0])*math.sqrt(eigen[1])*(h*math.sqrt(eigen[1])-h*math.sqrt(eigen[0]))) / (eigen[1] - eigen[0])
+beta =  (2*(h*math.sqrt(eigen[1])-h*math.sqrt(eigen[0]))) / (eigen[1] - eigen[0])
+ops.rayleigh(alpha,beta,0.,0.)
+
+# Define Analysis
+ops.wipeAnalysis()
+ops.system('BandGeneral')
+ops.constraints('Transformation')
+ops.algorithm('Newton')
+ops.numberer('RCM')
+ops.integrator('Newmark', 0.5, 0.25)
+ops. analysis('Transient')
+
+Nstep = 50000
+ResultDOF = 1
+Result_Disp = np.zeros((Nstep+1, Nnode+1)) # Create an empty ARRAY Filled with '0' # Row = 1 + iteration , Column = Timerow + Nnode
+Result_Accel = np.zeros((Nstep+1, Nnode+1))
+print("Empty Arrays Created for accumulating RESULTS")
+for i in range(1,Nstep):
+    ops.analyze(1, 1e-4) # TimeStep = 1/10,000 sec
+    Result_Accel[i,0] = ops.getTime()
+    Result_Disp[i,0] = ops.getTime()
+    print(i , ' th Iteration Completed')
+
+    for j in range(1, Nnode+1):
+        Result_Accel[i,j] = ops.nodeAccel(j, ResultDOF)
+        Result_Disp[i,j] = ops.nodeDisp(j, ResultDOF)
+
+# Execute Analysis
+cprint("Stage 5 : Earthquake Analysis Completed",'blue')
+cprint("-"*50, 'blue')
+#------------------------ EQ Analysis Terminated ---------------------------#
+
+#------------------------ DATA Analsis Starts  -----------------------------#
+cprint("Stage 6 : Data Analysis Initiated",'blue')
+Dnode = 10
+ax1 = plt.subplot(211) # num of Graph, col, row
+plt.plot(Result_Disp[:,0], Result_Disp[:,Dnode],'k')
+plt.setp(ax1.get_xticklabels(), visible=False)
+plt.ylabel(str(Dnode)+' DISP(mm)')
+plt.grid(True)
+plt.legend('Node 10')
+plt.tight_layout()
+
+ax2 = plt.subplot(212)
+plt.plot(Result_Accel[:,0], Result_Accel[:,10],'k')
+plt.grid(True)
+plt.ylabel(str(Dnode)+' ACC(mm/s2)')
+plt.legend('Node 10')
+plt.tight_layout()
+cprint("Stage 6 : Data Analysis Completed",'blue')
+cprint("-"*50, 'blue')
+#------------------------ DATA Analsis Ends  -------------------------------#
+
 end_time = timeit.default_timer() - start_time
 cprint('OpenSEES Analysis Terminated, Elasped Time is :' + str(round(end_time,5)) +' (s)','red') #문자는 str로 집어넣어야 한다.
+plt.show()
 
 
 
