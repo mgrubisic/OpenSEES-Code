@@ -36,7 +36,9 @@ for i in range(1,Nnode+1):
 FloorMass = [759.,677.,677.,677.,677.,
              674.,659.,551.,551.,494.] # Unit = t
 for i in range(1,Nnode+1):
-    ops.mass(i, FloorMass[i-1], 0.0, 0.0) # Mass direction: allowable direction of vibrations e.g. you may exclude vertical; vibrations (of floors) while analysis a multi-story building with rigid floor systems or horizontal ones for a single slab (footfall analysis).
+    ops.mass(i, FloorMass[i-1], 0.0, 0.0) # Mass direction: allowable direction of vibrations e.g. you may exclude vertical; 
+                                            vibrations (of floors) while analysis a multi-story building with rigid floor systems 
+                                            or horizontal ones for a single slab (footfall analysis).
 
 # Define Constraints
 ops.fix(1,1,1,1)
@@ -63,3 +65,11 @@ for i in range(0,Neigen):
 #------------------------ Analysis Terminated ---------------------------#
 end_time = timeit.default_timer() - start_time
 cprint('OpenSEES Analysis Terminated, Elasped Time is :' + str(round(end_time,5)) +' (s)','red') #문자는 str로 집어넣어야 한다.
+
+
+
+
+
+
+
+
