@@ -1,4 +1,7 @@
-#####################################################################
+ To model spring elements, twoNodeLink Element and Elastic Material were used. 
+ Eigenvalues of the model were almost identical to the examples model in the book.
+
+####################################################################
 ## OpenSees Python 10 DOF Elastic Earthquake Response Analysis #####
 ## 2018 April                                                  #####
 ## Fixed Base Model Y-DIR of the Building Model                #####
