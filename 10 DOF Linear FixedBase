@@ -1,0 +1,62 @@
+#####################################################################
+## OpenSees Python 10 DOF Elastic Earthquake Response Analysis #####
+## 2018 April                                                  #####
+## Fixed Base Model Y-DIR of the Building Model                #####
+#####################################################################
+# Unit
+# Mass = ton
+# Force = Newton
+# Length = mm
+# Time = second
+
+import opensees as ops
+import numpy as np
+import matplotlib.pyplot as plt
+import timeit
+from termcolor import cprint
+import math
+
+start_time = timeit.default_timer()
+cprint("OpenSEES Analysis has Strated",'red')
+#------------------------ Model Building started ---------------------------#
+# Model Dimension
+ops.wipe()
+ops.model('Basic','-ndm',2,'-ndf',3)
+
+# Define Nodes
+height=3010. #mm
+Nnode=10 # 10 DOF Model
+for i in range(1,Nnode+1):
+    ops.node(i,0.,height*(i-1))
+
+# Define Nodal Mass
+FloorMass = [759.,677.,677.,677.,677.,
+             674.,659.,551.,551.,494.] # Unit = t
+for i in range(1,Nnode+1):
+    ops.mass(i, FloorMass[i-1], 0.0, 0.0) # Mass direction: allowable direction of vibrations e.g. you may exclude vertical; vibrations (of floors) while analysis a multi-story building with rigid floor systems or horizontal ones for a single slab (footfall analysis).
+
+# Define Constraints
+ops.fix(1,1,1,1)
+for i in range(2,Nnode+1):
+    ops.fix(i,0,1,1)
+
+# Define Elements
+ops.geomTransf('Linear',1)
+E = [17198., 16893., 14054.,11774., 9813., 7909., 5268., 3936., 2841.]
+for i in range(1,Nnode):
+    ops.uniaxialMaterial('Elastic', i, E[i-1]*1e3)
+for i in range(1,Nnode):
+    ops.element('twoNodeLink', i, i, i+1, '-mat', i, '-dir', 1,'-doRayleigh','yes') # y-dir only, Rayleigh Included
+#------------------------ Model Building completed ---------------------------#
+
+#------------------------ Model Eigenvalue Analysis Started ------------------#
+Neigen=5
+eigen = ops.eigen(Neigen)
+for i in range(0,Neigen):
+ naf = math.sqrt(eigen[i]) / (2*math.pi) # eigenvalue = 2 pi f
+ print(str(i+1) + 'th Mode Frequency : ' + str(round(naf,5)) + '(Hz) & ' + 'Period : ' + str(round(1/naf,5)) + '(s)')
+#------------------------ Model Eigenvalue Analysis Completed ----------------#
+
+#------------------------ Analysis Terminated ---------------------------#
+end_time = timeit.default_timer() - start_time
+cprint('OpenSEES Analysis Terminated, Elasped Time is :' + str(round(end_time,5)) +' (s)','red') #문자는 str로 집어넣어야 한다.
