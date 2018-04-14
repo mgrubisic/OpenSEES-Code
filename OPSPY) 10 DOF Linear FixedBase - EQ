@@ -2,6 +2,7 @@
 # Eigenvalues of the model were almost identical to the examples model in the book.
  
 
+
 #####################################################################
 ## OpenSees Python 10 DOF Elastic Earthquake Response Analysis #####
 ## 2018 April Osaka University DONGHA KIM                      #####
@@ -75,7 +76,7 @@ g = 9800. #mm/s2
 ops.timeSeries('Linear', 1)
 ops.pattern('Plain', 1, 1)
 for i in range(1,Nnode+1):
-    ops.load(i, 0., FloorMass[i-1]*g, 0.) # X Y RZ
+    ops.load(i, 0., -FloorMass[i-1]*g, 0.) # X Y RZ
 
 # Define Analysis for Gravity Analysis
 ops.wipeAnalysis()
@@ -115,20 +116,25 @@ ops.numberer('RCM')
 ops.integrator('Newmark', 0.5, 0.25)
 ops. analysis('Transient')
 
+dtA = 1e-4
+#Nstep = int(gmcsv.size*(1/dtA))
 Nstep = 100000
 ResultDOF = 1
 Result_Disp = np.zeros((Nstep, Nnode+1)) # Create an empty ARRAY Filled with '0' # Row = 1 + iteration , Column = Timerow + Nnode
 Result_Accel = np.zeros((Nstep, Nnode+1))
-print("Empty Arrays Created for accumulating RESULTS")
+Result_Force = np.zeros((Nstep, Nnode+1))
+print("Empty Arrays have been Created for accumulating RESULTS")
 for i in range(1,Nstep):
-    ops.analyze(1, 1e-4) # TimeStep = 1/10,000 sec
+    ops.analyze(1, dtA) # TimeStep = 1/10,000 sec
     Result_Accel[i,0] = ops.getTime()
     Result_Disp[i,0] = ops.getTime()
+    Result_Force[i, 0] = ops.getTime()
     print(i , ' th Iteration Completed')
 
     for j in range(1, Nnode+1):
         Result_Accel[i,j] = ops.nodeAccel(j, ResultDOF)
         Result_Disp[i,j] = ops.nodeDisp(j, ResultDOF)
+        Result_Force[i,j] = ops.eleForce(j, ResultDOF)
 
 np.savetxt("DISP",Result_Disp)
 np.savetxt("ACC",Result_Accel)
@@ -138,9 +144,14 @@ cprint("-"*50, 'blue')
 #------------------------ EQ Analysis Terminated ---------------------------#
 
 #------------------------ DATA Analsis Starts  -----------------------------#
+font = {'family': 'Times New Roman',
+        'size'   :15}
+plt.rc('font', **font)
+
 cprint("Stage 6 : Data Analysis Initiated",'blue')
 Dnode = 10
-ax1 = plt.subplot(211) # num of Graph, col, row
+Dele = 9
+ax1 = plt.subplot(311) # num of Graph, col, row
 plt.plot(Result_Disp[:,0], Result_Disp[:,Dnode],'k')
 plt.setp(ax1.get_xticklabels(), visible=False)
 plt.ylabel(str(Dnode)+' DISP(mm)')
@@ -148,12 +159,21 @@ plt.grid(True)
 plt.legend()
 plt.tight_layout()
 
-ax2 = plt.subplot(212)
+ax2 = plt.subplot(312)
 plt.plot(Result_Accel[:,0], Result_Accel[:,10],'k')
+plt.setp(ax2.get_xticklabels(), visible=False)
 plt.grid(True)
 plt.ylabel(str(Dnode)+' ACC(mm/s2)')
 plt.legend()
 plt.tight_layout()
+
+ax3 = plt.subplot(313) # num of Graph, col, row
+plt.plot(Result_Force[:,0], Result_Force[:,Dele],'k')
+plt.ylabel(str(Dele)+' ele-Force(N)')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+
 cprint("Stage 6 : Data Analysis Completed",'blue')
 cprint("-"*50, 'blue')
 #------------------------ DATA Analsis Ends  -------------------------------#
@@ -161,7 +181,6 @@ cprint("-"*50, 'blue')
 end_time = timeit.default_timer() - start_time
 cprint('OpenSEES Analysis Terminated, Elasped Time is :' + str(round(end_time,5)) +' (s)','red') #문자는 str로 집어넣어야 한다.
 plt.show()
-
 
 
 
