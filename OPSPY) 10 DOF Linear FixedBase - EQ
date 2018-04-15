@@ -2,7 +2,6 @@
 # Eigenvalues of the model were almost identical to the examples model in the book.
  
 
-
 #####################################################################
 ## OpenSees Python 10 DOF Elastic Earthquake Response Analysis #####
 ## 2018 April Osaka University DONGHA KIM                      #####
@@ -38,21 +37,25 @@ for i in range(1,Nnode+1):
 # Define Nodal Mass
 FloorMass = [759.,677.,677.,677.,677.,
              674.,659.,551.,551.,494.] # Unit = t
-for i in range(1,Nnode+1):
-    ops.mass(i, FloorMass[i-1], 0.0, 0.0) # Mass direction: allowable direction of vibrations e.g. you may exclude vertical; vibrations (of floors) while analysis a multi-story building with rigid floor systems or horizontal ones for a single slab (footfall analysis).
+for i in range(2,Nnode+1):
+    ops.mass(i, FloorMass[i-1], FloorMass[i-1], FloorMass[i-1]) # Mass direction: allowable direction of vibrations e.g. you may exclude vertical;
+                                                                # vibrations (of floors) while analysis a multi-story building with rigid floor systems or
+                                                                # horizontal ones for a single slab (footfall analysis).
 
 # Define Constraints
 ops.fix(1,1,1,1)
 for i in range(2,Nnode+1):
-    ops.fix(i,0, 1, 1)
+    ops.fix(i,0, 0, 1)
 
 # Define Elements
 ops.geomTransf('Linear',1)
 EY = [17198., 16893., 14054.,11774., 9813., 7909., 5268., 3936., 2841.] # Unit : kN
+EX = [1e8] #Unit : kN
 for i in range(1,Nnode):
     ops.uniaxialMaterial('Elastic', i, EY[i-1]*1e3) # Stiffness must be multiplied by 10**3 since the unit is N here.
+    ops.uniaxialMaterial('Elastic', 100+i, EX[0]*1e3) # d
 for i in range(1,Nnode):
-    ops.element('twoNodeLink', i, i, i+1, '-mat', i, '-dir', 1,'-doRayleigh','yes') # y-dir only, Rayleigh Included
+    ops.element('twoNodeLink', i, i, i+1, '-mat', i,100+i,100+i, '-dir', 1,2,0, '-doRayleigh','yes') # Each Dir must have individual Mat / Rayleigh Included / RZ somwhow makes an error. (need to be 0)
 
 cprint("Stage 1 : Model Builder Completed",'blue')
 cprint("-"*50, 'blue')
@@ -79,11 +82,13 @@ for i in range(1,Nnode+1):
     ops.load(i, 0., -FloorMass[i-1]*g, 0.) # X Y RZ
 
 # Define Analysis for Gravity Analysis
+tolerance = 1e-5
 ops.wipeAnalysis()
 ops.system('BandGeneral')
 ops.constraints('Plain')
 ops.algorithm('Linear')
 ops.numberer('RCM')
+ops.test('NormUnbalance', tolerance, 10)
 ops.integrator('LoadControl', 0.1)
 ops.analysis('Static')
 ops.analyze(10)
@@ -99,7 +104,7 @@ dt = 0.01
 gmcsv = np.loadtxt('motionMDF.csv') # Unit = mm/s2 (MAX 3490 MIN -3960)
 gmlist = gmcsv.tolist()
 ops.timeSeries('Series', 2, '-dt', dt, '-values',*gmlist)
-ops.pattern('UniformExcitation', 2, 1, '-accel', 2)
+ops.pattern('UniformExcitation', 2, 1, '-accel', 2) # Relative Excitation
 
 # Define Rayleigh Damping
 h = 0.05
@@ -116,9 +121,9 @@ ops.numberer('RCM')
 ops.integrator('Newmark', 0.5, 0.25)
 ops. analysis('Transient')
 
-dtA = 1e-4
+dtA = 1e-2
 #Nstep = int(gmcsv.size*(1/dtA))
-Nstep = 100000
+Nstep = int(gmcsv.size)
 ResultDOF = 1
 Result_Disp = np.zeros((Nstep, Nnode+1)) # Create an empty ARRAY Filled with '0' # Row = 1 + iteration , Column = Timerow + Nnode
 Result_Accel = np.zeros((Nstep, Nnode+1))
@@ -136,8 +141,6 @@ for i in range(1,Nstep):
         Result_Disp[i,j] = ops.nodeDisp(j, ResultDOF)
         Result_Force[i,j] = ops.eleForce(j, ResultDOF)
 
-np.savetxt("DISP",Result_Disp)
-np.savetxt("ACC",Result_Accel)
 # Execute Analysis
 cprint("Stage 5 : Earthquake Analysis Completed",'blue')
 cprint("-"*50, 'blue')
@@ -145,16 +148,16 @@ cprint("-"*50, 'blue')
 
 #------------------------ DATA Analsis Starts  -----------------------------#
 font = {'family': 'Times New Roman',
-        'size'   :15}
+        'size'   :10}
 plt.rc('font', **font)
 
 cprint("Stage 6 : Data Analysis Initiated",'blue')
 Dnode = 10
 Dele = 9
 ax1 = plt.subplot(311) # num of Graph, col, row
-plt.plot(Result_Disp[:,0], Result_Disp[:,Dnode],'k')
+plt.plot(Result_Disp[:,0], Result_Disp[:,Dnode],'k')  #:, means from the beginning to the end of the row
 plt.setp(ax1.get_xticklabels(), visible=False)
-plt.ylabel(str(Dnode)+' DISP(mm)')
+plt.ylabel(str(Dnode)+' Node DISP [mm]')
 plt.grid(True)
 plt.legend()
 plt.tight_layout()
@@ -163,16 +166,19 @@ ax2 = plt.subplot(312)
 plt.plot(Result_Accel[:,0], Result_Accel[:,10],'k')
 plt.setp(ax2.get_xticklabels(), visible=False)
 plt.grid(True)
-plt.ylabel(str(Dnode)+' ACC(mm/s2)')
+plt.ylabel(str(Dnode)+' Node ACC [mm/s2]')
 plt.legend()
 plt.tight_layout()
 
 ax3 = plt.subplot(313) # num of Graph, col, row
-plt.plot(Result_Force[:,0], Result_Force[:,Dele],'k')
-plt.ylabel(str(Dele)+' ele-Force(N)')
+plt.plot(Result_Force[:,0], Result_Force[:,Dele]/1e3,'k')
+plt.ylabel(str(Dele)+' Ele-Force [kN]')
 plt.grid(True)
 plt.legend()
 plt.tight_layout()
+
+np.savetxt(str(Dnode) + "Node " + str(ResultDOF)+ "DOF" + "DISP.csv",Result_Disp)
+np.savetxt(str(Dnode) + "Node " + str(ResultDOF)+ "DOF" + "ACC.csv",Result_Accel)
 
 cprint("Stage 6 : Data Analysis Completed",'blue')
 cprint("-"*50, 'blue')
@@ -181,9 +187,6 @@ cprint("-"*50, 'blue')
 end_time = timeit.default_timer() - start_time
 cprint('OpenSEES Analysis Terminated, Elasped Time is :' + str(round(end_time,5)) +' (s)','red') #문자는 str로 집어넣어야 한다.
 plt.show()
-
-
-
 
 
 
