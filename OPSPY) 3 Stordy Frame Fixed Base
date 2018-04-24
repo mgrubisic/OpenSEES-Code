@@ -1,0 +1,179 @@
+#####################################################################
+## OpenSees Python 10 DOF Elastic Earthquake Response Analysis #####
+## 2018 April Osaka University DONGHA KIM                      #####
+## 3 DOF Frame Fixed Base Model                                #####
+#####################################################################
+
+# Unit
+# Mass = ton
+# Force = Newton
+# Length = mm
+# Time = second
+
+import opensees as ops
+import numpy as np
+import matplotlib.pyplot as plt
+import timeit
+from termcolor import cprint
+import math
+from mpl_toolkits.mplot3d import Axes3D
+from itertools import product, combinations
+
+start_time = timeit.default_timer()
+cprint("OpenSEES Analysis has Strated",'red')
+#------------------------ Model Building started ---------------------------#
+cprint("Stage 1 : Model Builder Initiated",'blue')
+# Model Dimension
+ops.wipe()
+ops.model('Basic', '-ndm', 3, '-ndf', 6)
+
+# Define Nodes
+LBEAM = 150.
+LCOL  = 150.
+LBAY  = 200.
+X1 = Y1 = Z1 = 0.0
+
+for H in range(4):
+    ops.node(1+4*H, X1, Y1, Z1+LCOL*H)
+    ops.node(2+4*H, X1, Y1+LBAY, Z1+LCOL*H)
+    ops.node(3+4*H, X1+LBEAM, Y1+LBAY, Z1+LCOL*H)
+    ops.node(4+4*H, X1+LBEAM, Y1, Z1+LCOL*H)
+  # Nodes for Isolators
+ # Wil be added soon
+
+for i in range(5,17):
+    d = 7.85e-9 #t/mm3
+    V = (250.**2) * 12.#mm3
+    nm = d*V / 4.
+    ops.mass(i, nm, nm, nm, nm, nm, nm)
+
+# Define Rigid Diaphragm
+Xcen = (2*X1+LBEAM / 2) # Mid-span coordinate for rigid diaphragm
+Ycen = (2*Y1+LBAY / 2)
+for H in range(1, 4): # Define master nodes for rigid diaphragm (On the center of the floor)
+    ops.node(100+H, Xcen, Ycen, Z1+LCOL*H)
+    ops.rigidDiaphragm(3, 100+H, 4*H+1, 4*H+2, 4*H+3, 4*H+4) # Direction Perpendicular to the rigid plane (which is Z here) / Master Node / *Slave Node
+
+# Define Constraints
+ops.fixZ(0.0, 1,1,1, 1,1,1) # Z=0 Plane FIXED
+ops.fix(101, 0,1,1, 1,1,1) # Master Nodes Fix
+ops.fix(102, 0,1,1, 1,1,1) # Z, RX, RY Fixed
+ops.fix(103, 0,1,1, 1,1,1)
+
+# Define Materials
+steel01 = 1
+elastic = 2
+ops.uniaxialMaterial('Steel01', steel01, 235., 205e3, 1e-3)
+ops.uniaxialMaterial('Elastic', elastic, 1.e15)
+
+# Define Sections
+FibSec1 = 10
+ops.section('Fiber', FibSec1) # Fiber section 10
+B = 1.0
+D = 25.0
+numSubdivY = 10
+numSubdivZ = 10
+crdsI = [-B/2, -D/2]
+crdsJ = [B/2, D/2]
+ops.patch('rect', steel01, numSubdivY, numSubdivZ, *crdsI, *crdsJ) # The width on local y direction is thin
+
+FibSec2 = 11
+ops.section('Fiber', FibSec2) # Fiber section 11
+B = 25.0
+D = 25.0
+numSubdivY = 10
+numSubdivZ = 10
+crdsI = [-B/2, -D/2]
+crdsJ = [B/2, D/2]
+ops.patch('rect', steel01, numSubdivY, numSubdivZ, *crdsI, *crdsJ) # The width on local y direction is thin
+ops.section('Aggregator', 1, elastic, 'T', '-section', FibSec1) # Column # Aggregator only can aggregate Uniaxial Materials.
+ops.section('Aggregator', 2, elastic, 'T', '-section', FibSec2) # Column # Aggregator only can aggregate Uniaxial Materials.
+
+# Define Elements
+ # Geometric Transformation
+COLvecxz = [0., -1., 0.]
+BEAMvecxz = [0., 0., 1.]
+GIRDvecxz = [0., 0., 1.]
+divec = [0., 0., 31.] # Rigid end configuration of a beam (31mm(25+6) from floor nodes)
+djvec = [0., 0., -31.]
+ops.geomTransf('Linear', 1, *COLvecxz, '-jntOffset', *divec, *djvec) # for columns # Each direction must have its own geometric transformation.
+ops.geomTransf('Linear', 2, *BEAMvecxz) # for beams
+ops.geomTransf('Linear', 3, *GIRDvecxz) # for girders
+ops.beamIntegration('Lobatto', 1, 1, 10) # tag secTag N
+ops.beamIntegration('Lobatto', 2, 2, 10) # tag secTag N
+
+ # Columns
+ops.element('dispBeamColumn', 1, 1, 5, 1, 1, '-mass', 196.25e-9) # eleTag i j tansf itgrTag <-cMass -masss massvalue>
+ops.element('dispBeamColumn', 2, 5, 9, 1, 1, '-mass', 196.25e-9) # Element mass density per unit length (t/mm)
+ops.element('dispBeamColumn', 3, 9, 13, 1, 1, '-mass', 196.25e-9)
+
+ops.element('dispBeamColumn', 4, 2, 6, 1, 1,'-mass', 196.25e-9)
+ops.element('dispBeamColumn', 5, 6, 10, 1, 1,'-mass', 196.25e-9)
+ops.element('dispBeamColumn', 6, 10, 14, 1, 1, '-mass', 196.25e-9)
+
+ops.element('dispBeamColumn', 7, 3, 7, 1, 1, '-mass', 196.25e-9)
+ops.element('dispBeamColumn', 8, 7, 11, 1, 1, '-mass', 196.25e-9)
+ops.element('dispBeamColumn', 9, 11, 15, 1, 1, '-mass', 196.25e-9)
+
+ops.element('dispBeamColumn', 10, 4, 8, 1, 1, '-mass', 196.25e-9)
+ops.element('dispBeamColumn', 11, 8, 12, 1, 1, '-mass', 196.25e-9)
+ops.element('dispBeamColumn', 12, 12, 16, 1, 1, '-mass', 196.25e-9)
+
+print("COLUMNS ELEMENTS CREATED")
+
+ # Beams
+ops.element('dispBeamColumn', 101, 6, 7, 2, 2) # eleTag i j tansf itgrTag <-cMass mass>
+ops.element('dispBeamColumn', 102, 5, 8, 2, 2)
+
+ops.element('dispBeamColumn', 103, 10, 11, 2, 2)
+ops.element('dispBeamColumn', 104, 9, 12, 2, 2)
+
+ops.element('dispBeamColumn', 105, 14, 15, 2, 2)
+ops.element('dispBeamColumn', 106, 13, 16, 2, 2)
+
+print("BEAMS ELEMENTS CREATED")
+
+ # Girders
+ops.element('dispBeamColumn', 201, 5, 6, 3, 2) # eleTag i j tansf itgrTag <-cMass mass>
+ops.element('dispBeamColumn', 202, 8, 7, 3, 2)
+
+ops.element('dispBeamColumn', 203, 9, 10, 3, 2)
+ops.element('dispBeamColumn', 204, 12, 11, 3, 2)
+
+ops.element('dispBeamColumn', 205, 13, 14, 3, 2)
+ops.element('dispBeamColumn', 206, 16, 15, 3, 2)
+
+print("GIRDERS ELEMENTS CREATED")
+
+cprint("Stage 1 : Model Builder Completed",'blue')
+cprint("-"*50, 'blue')
+#------------------------ Model Building completed ---------------------------#
+
+#------------------------ Model Eigenvalue Analysis Started ------------------#
+cprint("Stage 2 : Eigenvalue Analysis Initiated",'blue')
+Neigen=10
+eigen = ops.eigen(Neigen)
+for i in range(0,Neigen):
+ naf = math.sqrt(eigen[i]) / (2*math.pi) # sqrt.eigenvalue = 2 pi f
+ print(str(i+1) + 'th Mode Frequency : ' + str(round(naf,5)) + ' (Hz) & ' + 'Period : ' + str(round(1/naf,5)) + ' (s)')
+cprint("Stage 2 : Eigenvalue Analysis Completed",'blue')
+cprint("-"*50, 'blue')
+#------------------------ Model Eigenvalue Analysis Completed ----------------#
+
+#------------------------ Data Munging Started -------------------------------#
+Nnode = ops.getNodeTags() # Nnode is a list having Node Tags
+NodeArray = np.zeros((len(Nnode), 3)) # An array to include nodeal coordinates and tags
+xc=NodeArray[:,0]
+yc=NodeArray[:,1]
+zc=NodeArray[:,2]
+k=0
+for i in Nnode:
+    NodeCoord = ops.nodeCoord(i)
+    for j in range(3):
+        NodeArray[k, j] = + NodeCoord[j]
+    k=k+1
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.plot(xc,yc,zc,'ob')
+plt.show()
+# ------------------------ Data Munging Completed  ----------------------------#
