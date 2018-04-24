@@ -1,0 +1,333 @@
+#####################################################################
+## OpenSees 2.5 MP Python 3.6                                  #####
+## 2018 April Osaka University DONGHA KIM                      #####
+## 3 DOF Frame Fixed Base Model                                #####
+#####################################################################
+# Unit
+# Mass = ton
+# Force = Newton
+# Length = mm
+# Time = second
+
+import opensees as ops
+import numpy as np
+import matplotlib.pyplot as plt
+import timeit
+from termcolor import cprint
+import math
+from mpl_toolkits.mplot3d import Axes3D
+from itertools import product, combinations
+
+start_time = timeit.default_timer()
+cprint("OpenSEES Analysis has Strated",'red')
+#------------------------ Model Building started ---------------------------#
+cprint("Stage 1 : Model Builder Initiated",'blue')
+# Model Dimension
+ops.wipe()
+ops.model('Basic', '-ndm', 3, '-ndf', 6)
+
+# Define Sizes
+ColB = 1.0      # Column is 1x25 (xy)
+ColD = 25.0
+BeamB = 25.0    # Beam is 25x25 (xy)
+BeamD = 25.0
+d = 7.85e-9  # t/mm3
+V = (250. ** 2) * 12.  # mm3
+SlabMass = d * V / 4.  # quarter of the mass # ton
+ColMass = d * 25. * 1.  # ton/mm
+
+# Define Nodes
+LBEAM = 150.
+LCOL  = 150.
+LBAY  = 200.
+Ziso  = 0. # Height of Isolation
+X1 = Y1 = Z1 = 0.0
+
+for H in range(4):
+    ops.node(1+4*H, X1, Y1, Z1+LCOL*H)
+    ops.node(2+4*H, X1, Y1+LBAY, Z1+LCOL*H)
+    ops.node(3+4*H, X1+LBEAM, Y1+LBAY, Z1+LCOL*H)
+    ops.node(4+4*H, X1+LBEAM, Y1, Z1+LCOL*H)
+ops.node(301, X1, Y1, Z1-Ziso)
+ops.node(302, X1, Y1+LBAY, Z1-Ziso)
+ops.node(303, X1+LBEAM, Y1+LBAY, Z1-Ziso)
+ops.node(304, X1+LBEAM, Y1, Z1-Ziso)
+
+# Define Rigid Diaphragm
+Xcen = (2*X1+LBEAM / 2) # Mid-span coordinate for rigid diaphragm
+Ycen = (2*Y1+LBAY / 2)
+for H in range(0, 4): # Define master nodes for rigid diaphragm (On the center of the floor)
+    ops.node(100+H, Xcen, Ycen, Z1+LCOL*H)
+    ops.rigidDiaphragm(3, 100+H, 4*H+1, 4*H+2, 4*H+3, 4*H+4) # Direction Perpendicular to the rigid plane (which is Z here) / Master Node / *Slave Node
+
+Nnode = ops.getNodeTags() # Nnode is a list having Node Tags
+NodeArray = np.zeros((len(Nnode), 3)) # An array to include nodeal coordinates and tags
+xc=NodeArray[:,0]
+yc=NodeArray[:,1]
+zc=NodeArray[:,2]
+k=0
+for i in Nnode:
+    NodeCoord = ops.nodeCoord(i)
+    for j in range(3):
+        NodeArray[k, j] = + NodeCoord[j]
+    k=k+1
+
+ # Define Mass
+for i in range(1, 17):
+    ops.mass(i, SlabMass, SlabMass, SlabMass, SlabMass, SlabMass, SlabMass)
+Nmass=[]
+for i in Nnode:
+    Nmass.append(ops.nodeMass(i, 1)) # Append is a command to add an element to a list
+
+# Define Constraints
+for i in range(4): # Base Isolation Nodes Fixed
+    ops.fix(301+i, 1, 1, 1, 1, 1, 1)
+for i in range(4): # Master Node fix for rigid diaphragm
+    ops.fix(100+i, 0, 1, 1, 1, 1, 1)
+
+# Define Materials
+steel01 = 1
+elastic = 2
+isolator = 3
+ops.uniaxialMaterial('Steel01', steel01, 235., 205e3, 1e-3)
+ops.uniaxialMaterial('Elastic', elastic, 1.e15)
+ops.uniaxialMaterial('Steel01', isolator, 80., 3.08e4, 0.08)
+
+# Define Sections
+FibSec1 = 10
+ops.section('Fiber', FibSec1) # Fiber section 10
+numSubdivY = 10
+numSubdivZ = 10
+ColcrdsI = [-ColB/2, -ColD/2]
+ColcrdsJ = [ColB/2, ColD/2]
+ops.patch('rect', steel01, numSubdivY, numSubdivZ, *ColcrdsI, *ColcrdsJ) # The width on local y direction is thin
+
+FibSec2 = 11
+ops.section('Fiber', FibSec2) # Fiber section 11
+numSubdivY = 10
+numSubdivZ = 10
+BeamcrdsI = [-BeamB/2, -BeamD/2]
+BeamcrdsJ = [BeamB/2, BeamD/2]
+ops.patch('rect', steel01, numSubdivY, numSubdivZ, *BeamcrdsI, *BeamcrdsJ) # The width on local y direction is thin
+ops.section('Aggregator', 1, elastic, 'T', '-section', FibSec1) # Column # Aggregator only can aggregate Uniaxial Materials.
+ops.section('Aggregator', 2, elastic, 'T', '-section', FibSec2) # Column # Aggregator only can aggregate Uniaxial Materials.
+
+# Define Elements
+ # Geometric Transformation
+COLvecxz = [0., -1., 0.]
+BEAMvecxz = [0., 0., 1.]
+GIRDvecxz = [0., 0., 1.]
+divec = [0., 0., 31.] # Rigid end configuration of a beam (31mm(25+6) from floor nodes)
+djvec = [0., 0., -31.]
+ops.geomTransf('Linear', 1, *COLvecxz, '-jntOffset', *divec, *djvec) # for columns # Each direction must have its own geometric transformation.
+ops.geomTransf('Linear', 2, *BEAMvecxz) # for beams
+ops.geomTransf('Linear', 3, *GIRDvecxz) # for girders
+ops.beamIntegration('Lobatto', 1, 1, 10) # tag secTag N
+ops.beamIntegration('Lobatto', 2, 2, 10) # tag secTag N
+
+ # Columns
+ops.element('dispBeamColumn', 1, 1, 5, 1, 1, '-mass', ColMass) # eleTag i j tansf itgrTag <-cMass -masss massvalue>
+ops.element('dispBeamColumn', 2, 5, 9, 1, 1, '-mass', ColMass) # Element mass density per unit length (t/mm)
+ops.element('dispBeamColumn', 3, 9, 13, 1, 1, '-mass', ColMass)
+
+ops.element('dispBeamColumn', 4, 2, 6, 1, 1,'-mass', ColMass)
+ops.element('dispBeamColumn', 5, 6, 10, 1, 1,'-mass', ColMass)
+ops.element('dispBeamColumn', 6, 10, 14, 1, 1, '-mass', ColMass)
+
+ops.element('dispBeamColumn', 7, 3, 7, 1, 1, '-mass', ColMass)
+ops.element('dispBeamColumn', 8, 7, 11, 1, 1, '-mass', ColMass)
+ops.element('dispBeamColumn', 9, 11, 15, 1, 1, '-mass', ColMass)
+
+ops.element('dispBeamColumn', 10, 4, 8, 1, 1, '-mass', ColMass)
+ops.element('dispBeamColumn', 11, 8, 12, 1, 1, '-mass', ColMass)
+ops.element('dispBeamColumn', 12, 12, 16, 1, 1, '-mass', ColMass)
+
+ColTags = list(range(1, 13))
+
+print("COLUMNS ELEMENTS CREATED")
+
+ # Beams
+ops.element('dispBeamColumn', 101, 6, 7, 2, 2) # eleTag i j tansf itgrTag <-cMass mass>
+ops.element('dispBeamColumn', 102, 5, 8, 2, 2)
+
+ops.element('dispBeamColumn', 103, 10, 11, 2, 2)
+ops.element('dispBeamColumn', 104, 9, 12, 2, 2)
+
+ops.element('dispBeamColumn', 105, 14, 15, 2, 2)
+ops.element('dispBeamColumn', 106, 13, 16, 2, 2)
+
+print("BEAMS ELEMENTS CREATED")
+
+ # Girders
+ops.element('dispBeamColumn', 107, 5, 6, 3, 2) # eleTag i j tansf itgrTag <-cMass mass>
+ops.element('dispBeamColumn', 108, 8, 7, 3, 2)
+
+ops.element('dispBeamColumn', 109, 9, 10, 3, 2)
+ops.element('dispBeamColumn', 110, 12, 11, 3, 2)
+
+ops.element('dispBeamColumn', 111, 13, 14, 3, 2)
+ops.element('dispBeamColumn', 112, 16, 15, 3, 2)
+
+BeamTags = list(range(101, 113))
+
+print("GIRDERS ELEMENTS CREATED")
+
+ # Isolators
+for i in range(4):
+    ops.element('zeroLength', 301+i, 301+i, 1+i, '-mat', isolator, elastic, '-dir', 1, 3) # Guide Rail (isolation) can not move to Y dir.
+eleTag = ops.getEleTags() # A list containing eletags
+print("ISOLATORS ELEMENTS CREATED")
+
+cprint("Stage 1 : Model Builder Completed",'blue')
+cprint("-"*50, 'blue')
+#------------------------ Model Building completed ---------------------------#
+
+#------------------------ Model Eigenvalue Analysis Started ------------------#
+cprint("Stage 2 : Eigenvalue Analysis Initiated",'blue')
+Neigen=10
+eigen = ops.eigen(Neigen)
+for i in range(0,Neigen):
+ naf = math.sqrt(eigen[i]) / (2*math.pi) # sqrt.eigenvalue = 2 pi f
+ print(str(i+1) + 'th Mode Frequency : ' + str(round(naf,5)) + ' (Hz) & ' + 'Period : ' + str(round(1/naf,5)) + ' (s)')
+
+cprint("Stage 2 : Eigenvalue Analysis Completed",'blue')
+cprint("-"*50, 'blue')
+#------------------------ Model Eigenvalue Analysis Completed ----------------#
+
+print("Columns Elements : %s " "\n" "Beam Elements : %s" %(ColTags,BeamTags)) # Fancier way to output
+
+#------------------------Define Analysis Resources Define -----------------------#
+g = 9800. #mm/s2
+LinearTS = 1
+SinTs = 2
+EQ1Ts = 3
+constrLGR = 'Lagrange'
+constrTRF = 'Transformation'
+
+ # == Define Time Series
+ops.timeSeries('Linear', LinearTS)
+ops.timeSeries('Sine', SinTs, 0.0, 10.0, 0.25,'-factor',1.0) # Factor 10
+gmotion = np.loadtxt('motionMDF.csv') # Array
+gmlist=gmotion.tolist() # tolsit()
+gmllistmod =[]
+for i in range(len(gmlist)):
+    gmllistmod += [gmlist[i]/1000.]
+value1 = gmllistmod # Value list n
+ops.timeSeries('Series', EQ1Ts, '-dt', 0.01, '-values', *value1)
+
+ # == Data Structures
+Nstep = 500
+eigdata=np.zeros((Nstep+1, 2))
+accdata=np.zeros((Nstep+1, 5))
+dispdata=np.zeros((Nstep+1, 5))
+
+#------------------------ Define Analysis Resources -----------------------------#
+
+#------------------------ Gravity Analysis Started ---------------------------#
+cprint("Stage 3 : Gravity Analysis Initiated",'blue')
+
+  # Define Pattern for Gravity Analysis
+
+ops.pattern('Plain', 1, LinearTS)
+  # Gravity Loading to elements
+ops.eleLoad('-ele', *ColTags, '-type', '-beamUniform', 0., -ColMass*g, 0.)   # Element Load to Columns
+ops.eleLoad('-ele', *BeamTags, '-type', '-beamUniform', 0., -SlabMass*g, 0.) # Element Load to Beams and Girders
+
+  # Define Analysis for Gravity Analysis
+tolerance = 1e-8
+ops.wipeAnalysis()
+ops.system('BandGeneral')
+      # When there are rigid diaphragms, you should use Lagrange or Transformation for constraints
+ops.constraints(constrLGR)
+print("Gravity Analysis Constraints Condition : ", constrLGR)
+ops.algorithm('Linear')
+ops.numberer('RCM')
+ops.test('NormUnbalance', tolerance, 10)
+ops.integrator('LoadControl', 0.1)
+ops.analysis('Static')
+ops.analyze(10)
+ops.loadConst('-time', 0.)
+
+cprint("Stage 3 : Gravity has been Adopted", 'blue')
+cprint("-"*50, 'blue')
+#-------------------------- Gravity Analysis Completed  ----------------------#
+'''
+#--------------------------- Static Analysis Started -------------------------#
+cprint("Stage 4 : Static Analysis Started", 'blue')
+ops.pattern('Plain', 2, LinearTS)
+for i in range(4):
+    ops.load(100+i, 1., 0., 0., 0., 0., 0.)
+ops.wipeAnalysis()
+ops.system('BandGeneral')
+ops.constraints(constrLGR)
+print("Push Over Analysis Constraints Condition : ", constrLGR)
+ops.algorithm('Newton')
+ops.numberer('RCM')
+ops.test('NormUnbalance', tolerance, 10)
+ops.integrator('DisplacementControl', 100, 1, 0.1)
+ops.analysis('Static')
+ops.analyze(1)
+
+cprint("Stage 4 : Static Analysis Ended", 'blue')
+cprint("-"*50, 'blue')
+#-------------------------- Static Analysis Ended ----------------------------#
+'''
+#-------------------------- Earthquake Analysis Started ----------------------#
+cprint("Stage 5 : EQ Analysis Started",'blue')
+ops.pattern('UniformExcitation', 3, 1, '-disp', SinTs) #ptTag dir
+
+  # Define Analysis
+ops.wipeAnalysis()
+ops.system('BandGeneral')
+ops.constraints(constrTRF)
+print("Push Over Analysis Constraints Condition : ", constrTRF)
+ops.algorithm('Newton')
+ops.numberer('RCM')
+ops.integrator('Newmark', 0.5, 0.25)  #gmmma beta
+ops.analysis('Transient')
+
+for i in range(Nstep):
+    ops.analyze(1, 1e-3)
+    eigdata[i:,0] = ops.getTime()
+    eigdata[i:,1] = 2*math.pi / (math.sqrt(ops.eigen(1)))
+    accdata[i:,0] = ops.getTime()
+    dispdata[i:,0] = ops.getTime()
+    for j in range(0,4):
+        accdata[i:, j+1] = ops.nodeAccel(100+j, 1)
+        dispdata[i:, j+1] = ops.nodeDisp(100+j, 1)
+    print("%s iteration completed" %i)
+
+cprint("Stage 5 : EQ Analysis ENDED",'blue')
+cprint("-"*50, 'blue')
+#-------------------------- Earthquake Analysis Ended ------------------------#
+'''
+#------------------------ Data Munging Started -------------------------------#
+cprint("Stage 6 : Data Munging Started",'blue')
+for i in eleTag:
+    elefor[:,1] =+ ops.eleForce(i, 3)
+cprint("Stage 6 : Data Munging ENDED",'blue')
+cprint("-"*50, 'blue')
+# ------------------------ Data Munging Completed  ----------------------------#
+'''
+end_time = timeit.default_timer() - start_time
+cprint('OpenSEES Analysis Terminated, Elasped Time is :' + str(round(end_time,5)) +' (s)','red') #문자는 str로 집어넣어야 한다.
+
+#------------------------ Data Plotting Started -------------------------------#
+font = {'family': 'Times New Roman',
+        'size'   :10}
+plt.rc('font', **font)
+
+f, (ax1, ax3) = plt.subplots(1, 2)
+ax1.plot(eigdata[:,0],eigdata[:,1], label='Fundamental Period (s)')
+for i in range(1,5):
+    #ax2.plot(accdata[:,0], accdata[:, i], label=str(i)+' th Floor ACC (mm/s2)')
+    ax3.plot(accdata[:,0], dispdata[:, i], label=str(i) + ' th Floor Disp (mm)')
+
+plt.legend(loc=1)
+plt.grid(True)
+plt.xlabel('Time (s)')
+plt.tight_layout()
+#ax = fig.gca(projection='3d')
+#ax.plot(xc,yc,zc,'ob')
+plt.show()
+# ------------------------ Data Munging Completed  ----------------------------#
